@@ -1,0 +1,1403 @@
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..41edb7eb9f87cf23b26ad7842b7187312bcd35ae
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,137 @@
++# SwiftHaul - On-demand Logistics Platform
++
++SwiftHaul is an original full-stack web application for local goods transportation. It includes a **customer booking flow**, **driver partner workflow**, and an **admin operations dashboard**.
++
++## Tech Stack
++- **Frontend:** React + Tailwind CSS + Vite
++- **Backend:** Node.js + Express (REST API)
++- **Auth:** JWT
++- **Database:** PostgreSQL
++
++## Product Modules
++### 1) Customer Panel
++- JWT signup/login
++- Book goods vehicle (bike, tempo, mini truck, large truck)
++- Pickup + drop address and coordinates
++- Live fare estimation (distance-based + surge)
++- Instant or scheduled delivery
++- Payment placeholder (Stripe-style mock payment intent)
++- Booking history
++- Cancel booking
++- Rate driver
++
++### 2) Driver Partner Panel
++- Driver registration with vehicle details + license upload placeholder
++- Driver login
++- Job accept/reject
++- Online/offline toggle
++- Earnings + wallet dashboard
++- Trip history
++
++### 3) Admin Dashboard
++- View users/drivers
++- Approve driver registrations
++- View live bookings
++- Manage pricing rules
++- Analytics: total revenue, active drivers, completed trips, cancellation rate
++
++## Folder Structure
++```text
++.
++├── backend
++│   ├── package.json
++│   └── src
++│       ├── app.js
++│       ├── server.js
++│       ├── config/
++│       ├── controllers/
++│       ├── middleware/
++│       ├── routes/
++│       ├── services/
++│       ├── utils/
++│       ├── data/apiRoutes.md
++│       └── db/{schema.sql,seed.sql}
++└── frontend
++    ├── package.json
++    ├── index.html
++    ├── tailwind.config.js
++    └── src
++        ├── App.jsx
++        ├── components/
++        ├── pages/
++        ├── services/
++        ├── context/
++        └── styles/
++```
++
++## Backend Setup
++```bash
++cd backend
++cp .env.example .env
++npm install
++npm run dev
++```
++
++## Frontend Setup
++```bash
++cd frontend
++npm install
++npm run dev
++```
++
++## PostgreSQL Setup
++1. Create DB:
++```sql
++CREATE DATABASE swifthaul;
++```
++2. Apply schema:
++```bash
++psql -d swifthaul -f backend/src/db/schema.sql
++```
++3. Seed sample data:
++```bash
++psql -d swifthaul -f backend/src/db/seed.sql
++```
++
++## Business Logic
++### Fare Formula
++`total_fare = (base_fare + distance_km * per_km_rate) * surge_multiplier`
++
++### Driver Commission
++`driver_payout = total_fare * (commission_percent / 100)`
++
++### Platform Fee
++`platform_fee = total_fare - driver_payout`
++
++## API Index
++Route list is available in: `backend/src/data/apiRoutes.md`
++
++## Environment Variables
++Backend `.env` values:
++- `PORT`
++- `DATABASE_URL`
++- `JWT_SECRET`
++- `JWT_EXPIRES_IN`
++- `SURGE_MULTIPLIER`
++- `DRIVER_COMMISSION_PERCENT`
++
++Frontend optional:
++- `VITE_API_BASE_URL`
++
++## Deployment Steps
++### Backend (Render/Railway/Fly)
++1. Push repository to Git provider.
++2. Configure managed Postgres.
++3. Set backend env vars.
++4. Start command: `npm start` from `backend`.
++5. Run SQL migration using `schema.sql` and `seed.sql`.
++
++### Frontend (Vercel/Netlify)
++1. Import repository.
++2. Build command: `npm run build` in `frontend`.
++3. Output dir: `dist`.
++4. Set `VITE_API_BASE_URL` to deployed backend URL.
++
++## Notes
++- Controllers currently use in-memory arrays for demo runtime speed; replace with repository functions using `pg` for production persistence.
++- `schema.sql` provides complete relational design for production-grade migration.
+diff --git a/backend/.env.example b/backend/.env.example
+new file mode 100644
+index 0000000000000000000000000000000000000000..70fc4fee8e432514bf7ec7c2e88b49ce81cd26fd
+--- /dev/null
++++ b/backend/.env.example
+@@ -0,0 +1,7 @@
++PORT=5000
++NODE_ENV=development
++DATABASE_URL=postgresql://postgres:postgres@localhost:5432/swifthaul
++JWT_SECRET=super_secret_change_me
++JWT_EXPIRES_IN=7d
++SURGE_MULTIPLIER=1
++DRIVER_COMMISSION_PERCENT=80
+diff --git a/backend/package.json b/backend/package.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..dd2e7f2010cec02575fcdfad4d9bcc2df06c6789
+--- /dev/null
++++ b/backend/package.json
+@@ -0,0 +1,23 @@
++{
++  "name": "swifthaul-backend",
++  "version": "1.0.0",
++  "description": "API for SwiftHaul logistics platform",
++  "main": "src/server.js",
++  "scripts": {
++    "dev": "nodemon src/server.js",
++    "start": "node src/server.js",
++    "lint": "echo 'Add eslint config if needed'"
++  },
++  "dependencies": {
++    "bcryptjs": "^2.4.3",
++    "cors": "^2.8.5",
++    "dotenv": "^16.4.5",
++    "express": "^4.19.2",
++    "jsonwebtoken": "^9.0.2",
++    "multer": "^1.4.5-lts.1",
++    "pg": "^8.12.0"
++  },
++  "devDependencies": {
++    "nodemon": "^3.1.4"
++  }
++}
+diff --git a/backend/src/app.js b/backend/src/app.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..3dcf6f31cc331dd355be6470ed823ff664d7f03a
+--- /dev/null
++++ b/backend/src/app.js
+@@ -0,0 +1,27 @@
++const express = require('express');
++const cors = require('cors');
++const { errorHandler, notFound } = require('./middleware/errorMiddleware');
++
++const authRoutes = require('./routes/authRoutes');
++const bookingRoutes = require('./routes/bookingRoutes');
++const driverRoutes = require('./routes/driverRoutes');
++const adminRoutes = require('./routes/adminRoutes');
++
++const app = express();
++
++app.use(cors());
++app.use(express.json());
++
++app.get('/api/health', (_req, res) => {
++  res.status(200).json({ status: 'ok', service: 'SwiftHaul API' });
++});
++
++app.use('/api/auth', authRoutes);
++app.use('/api/bookings', bookingRoutes);
++app.use('/api/drivers', driverRoutes);
++app.use('/api/admin', adminRoutes);
++
++app.use(notFound);
++app.use(errorHandler);
++
++module.exports = app;
+diff --git a/backend/src/config/db.js b/backend/src/config/db.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..2226b237f3b70c55663513e232eff356f2e679ff
+--- /dev/null
++++ b/backend/src/config/db.js
+@@ -0,0 +1,9 @@
++const { Pool } = require('pg');
++
++const pool = new Pool({
++  connectionString: process.env.DATABASE_URL
++});
++
++module.exports = {
++  query: (text, params) => pool.query(text, params)
++};
+diff --git a/backend/src/controllers/adminController.js b/backend/src/controllers/adminController.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..ed4d93e588c36279a5421c796764a5dc00aec358
+--- /dev/null
++++ b/backend/src/controllers/adminController.js
+@@ -0,0 +1,64 @@
++const { users, drivers } = require('./authController');
++const { bookings } = require('./bookingController');
++const { pricingByVehicle } = require('../utils/fareCalculator');
++
++const pricingRules = {
++  surgeMultiplier: Number(process.env.SURGE_MULTIPLIER || 1),
++  driverCommissionPercent: Number(process.env.DRIVER_COMMISSION_PERCENT || 80),
++  vehiclePricing: pricingByVehicle
++};
++
++const getAllUsers = (_req, res) => res.status(200).json(users);
++const getAllDrivers = (_req, res) => res.status(200).json(drivers);
++const getLiveBookings = (_req, res) => res.status(200).json(bookings);
++
++const approveDriver = (req, res) => {
++  const driver = drivers.find((item) => item.id === Number(req.params.driverId));
++
++  if (!driver) {
++    res.status(404);
++    throw new Error('Driver not found');
++  }
++
++  driver.isApproved = true;
++  return res.status(200).json({ message: 'Driver approved', driver });
++};
++
++const updatePricingRules = (req, res) => {
++  const { surgeMultiplier, driverCommissionPercent } = req.body;
++
++  if (surgeMultiplier) {
++    pricingRules.surgeMultiplier = Number(surgeMultiplier);
++  }
++
++  if (driverCommissionPercent) {
++    pricingRules.driverCommissionPercent = Number(driverCommissionPercent);
++  }
++
++  return res.status(200).json({ message: 'Pricing rules updated', pricingRules });
++};
++
++const getAnalytics = (_req, res) => {
++  const completedTrips = bookings.filter((booking) => booking.status === 'completed');
++  const cancelledTrips = bookings.filter((booking) => booking.status === 'cancelled');
++  const activeDrivers = drivers.filter((driver) => driver.isOnline).length;
++
++  const totalRevenue = completedTrips.reduce((sum, booking) => sum + booking.fare.platformFee, 0);
++  const cancellationRate = bookings.length ? (cancelledTrips.length / bookings.length) * 100 : 0;
++
++  return res.status(200).json({
++    totalRevenue,
++    activeDrivers,
++    completedTrips: completedTrips.length,
++    cancellationRate: Number(cancellationRate.toFixed(2))
++  });
++};
++
++module.exports = {
++  getAllUsers,
++  getAllDrivers,
++  approveDriver,
++  getLiveBookings,
++  updatePricingRules,
++  getAnalytics
++};
+diff --git a/backend/src/controllers/authController.js b/backend/src/controllers/authController.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..b03b5d014a5c51d6694098dfc62156f08ede453d
+--- /dev/null
++++ b/backend/src/controllers/authController.js
+@@ -0,0 +1,100 @@
++const bcrypt = require('bcryptjs');
++const { generateToken } = require('../utils/jwt');
++
++// In production these operations should use repository/data access layers.
++const users = [];
++const drivers = [];
++
++const signUp = async (req, res) => {
++  const { name, email, password, phone } = req.body;
++
++  if (!name || !email || !password) {
++    res.status(400);
++    throw new Error('Name, email and password are required');
++  }
++
++  const userExists = users.find((u) => u.email === email);
++  if (userExists) {
++    res.status(409);
++    throw new Error('User already exists');
++  }
++
++  const passwordHash = await bcrypt.hash(password, 10);
++
++  const user = {
++    id: users.length + 1,
++    name,
++    email,
++    phone,
++    passwordHash,
++    role: 'customer'
++  };
++
++  users.push(user);
++
++  return res.status(201).json({
++    user: { id: user.id, name: user.name, email: user.email, role: user.role },
++    token: generateToken({ id: user.id, role: user.role })
++  });
++};
++
++const login = async (req, res) => {
++  const { email, password, role = 'customer' } = req.body;
++  const collection = role === 'driver' ? drivers : users;
++  const account = collection.find((u) => u.email === email);
++
++  if (!account || !(await bcrypt.compare(password, account.passwordHash))) {
++    res.status(401);
++    throw new Error('Invalid credentials');
++  }
++
++  return res.status(200).json({
++    user: { id: account.id, name: account.name, email: account.email, role: account.role },
++    token: generateToken({ id: account.id, role: account.role })
++  });
++};
++
++const registerDriver = async (req, res) => {
++  const { name, email, password, vehicleType, vehicleNumber, licenseDocumentUrl } = req.body;
++
++  if (!name || !email || !password || !vehicleType || !vehicleNumber) {
++    res.status(400);
++    throw new Error('Missing required driver details');
++  }
++
++  const driverExists = drivers.find((d) => d.email === email);
++  if (driverExists) {
++    res.status(409);
++    throw new Error('Driver already exists');
++  }
++
++  const passwordHash = await bcrypt.hash(password, 10);
++  const driver = {
++    id: drivers.length + 1,
++    name,
++    email,
++    role: 'driver',
++    passwordHash,
++    vehicleType,
++    vehicleNumber,
++    licenseDocumentUrl: licenseDocumentUrl || 'upload-pending',
++    isApproved: false,
++    isOnline: false,
++    walletBalance: 0
++  };
++
++  drivers.push(driver);
++
++  return res.status(201).json({
++    message: 'Driver registered. Approval pending admin review.',
++    driverId: driver.id
++  });
++};
++
++module.exports = {
++  signUp,
++  login,
++  registerDriver,
++  users,
++  drivers
++};
+diff --git a/backend/src/controllers/bookingController.js b/backend/src/controllers/bookingController.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..9026d132b3b3fdbff2c7c191b4f609109acc7941
+--- /dev/null
++++ b/backend/src/controllers/bookingController.js
+@@ -0,0 +1,113 @@
++const { calculateFare } = require('../utils/fareCalculator');
++const { calculateDistanceKm } = require('../services/locationService');
++const { createPaymentIntent } = require('../services/paymentService');
++
++const bookings = [];
++
++const estimateFare = (req, res) => {
++  const { vehicleType, pickupLat, pickupLng, dropLat, dropLng } = req.body;
++
++  const distanceKm = calculateDistanceKm({ pickupLat, pickupLng, dropLat, dropLng });
++  const fare = calculateFare({
++    vehicleType,
++    distanceKm,
++    surgeMultiplier: Number(process.env.SURGE_MULTIPLIER || 1),
++    driverCommissionPercent: Number(process.env.DRIVER_COMMISSION_PERCENT || 80)
++  });
++
++  return res.status(200).json(fare);
++};
++
++const createBooking = async (req, res) => {
++  const {
++    vehicleType,
++    pickupAddress,
++    dropAddress,
++    pickupLat,
++    pickupLng,
++    dropLat,
++    dropLng,
++    scheduledAt,
++    notes
++  } = req.body;
++
++  const distanceKm = calculateDistanceKm({ pickupLat, pickupLng, dropLat, dropLng });
++  const fare = calculateFare({
++    vehicleType,
++    distanceKm,
++    surgeMultiplier: Number(process.env.SURGE_MULTIPLIER || 1),
++    driverCommissionPercent: Number(process.env.DRIVER_COMMISSION_PERCENT || 80)
++  });
++
++  const booking = {
++    id: bookings.length + 1,
++    customerId: req.user.id,
++    driverId: null,
++    vehicleType,
++    pickupAddress,
++    dropAddress,
++    scheduledAt: scheduledAt || new Date().toISOString(),
++    status: 'pending',
++    notes,
++    fare,
++    createdAt: new Date().toISOString(),
++    timeline: [{ status: 'pending', timestamp: new Date().toISOString() }]
++  };
++
++  const paymentIntent = await createPaymentIntent({ amount: fare.totalFare, bookingId: booking.id });
++  booking.paymentIntent = paymentIntent;
++
++  bookings.push(booking);
++
++  return res.status(201).json(booking);
++};
++
++const getCustomerBookings = (req, res) => {
++  const customerBookings = bookings.filter((booking) => booking.customerId === req.user.id);
++  return res.status(200).json(customerBookings);
++};
++
++const cancelBooking = (req, res) => {
++  const booking = bookings.find((item) => item.id === Number(req.params.bookingId));
++  if (!booking) {
++    res.status(404);
++    throw new Error('Booking not found');
++  }
++
++  if (booking.customerId !== req.user.id) {
++    res.status(403);
++    throw new Error('Cannot cancel another user booking');
++  }
++
++  booking.status = 'cancelled';
++  booking.timeline.push({ status: 'cancelled', timestamp: new Date().toISOString() });
++
++  return res.status(200).json({ message: 'Booking cancelled', booking });
++};
++
++const rateDriver = (req, res) => {
++  const { rating, review } = req.body;
++  const booking = bookings.find((item) => item.id === Number(req.params.bookingId));
++
++  if (!booking) {
++    res.status(404);
++    throw new Error('Booking not found');
++  }
++
++  if (booking.customerId !== req.user.id) {
++    res.status(403);
++    throw new Error('Cannot rate another user booking');
++  }
++
++  booking.rating = { rating, review };
++  return res.status(200).json({ message: 'Driver rated successfully', booking });
++};
++
++module.exports = {
++  estimateFare,
++  createBooking,
++  getCustomerBookings,
++  cancelBooking,
++  rateDriver,
++  bookings
++};
+diff --git a/backend/src/controllers/driverController.js b/backend/src/controllers/driverController.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..e75080a80f8e215bd26d0ecfed3c73410ff705b6
+--- /dev/null
++++ b/backend/src/controllers/driverController.js
+@@ -0,0 +1,62 @@
++const { bookings } = require('./bookingController');
++const { drivers } = require('./authController');
++
++const setAvailability = (req, res) => {
++  const { isOnline } = req.body;
++  const driver = drivers.find((d) => d.id === req.user.id);
++
++  if (!driver) {
++    res.status(404);
++    throw new Error('Driver not found');
++  }
++
++  driver.isOnline = Boolean(isOnline);
++  return res.status(200).json({ message: 'Availability updated', isOnline: driver.isOnline });
++};
++
++const getOpenJobs = (_req, res) => {
++  const openJobs = bookings.filter((booking) => booking.status === 'pending');
++  return res.status(200).json(openJobs);
++};
++
++const respondToJob = (req, res) => {
++  const { action } = req.body;
++  const booking = bookings.find((item) => item.id === Number(req.params.bookingId));
++
++  if (!booking) {
++    res.status(404);
++    throw new Error('Booking not found');
++  }
++
++  if (action === 'accept') {
++    booking.driverId = req.user.id;
++    booking.status = 'accepted';
++    booking.timeline.push({ status: 'accepted', timestamp: new Date().toISOString() });
++  }
++
++  if (action === 'reject') {
++    booking.status = 'pending';
++  }
++
++  return res.status(200).json({ message: `Job ${action}ed`, booking });
++};
++
++const getDriverDashboard = (req, res) => {
++  const myTrips = bookings.filter((booking) => booking.driverId === req.user.id);
++  const completedTrips = myTrips.filter((trip) => trip.status === 'completed');
++  const earnings = completedTrips.reduce((sum, trip) => sum + trip.fare.driverPayout, 0);
++
++  return res.status(200).json({
++    totalTrips: myTrips.length,
++    completedTrips: completedTrips.length,
++    earnings,
++    walletBalance: earnings
++  });
++};
++
++module.exports = {
++  setAvailability,
++  getOpenJobs,
++  respondToJob,
++  getDriverDashboard
++};
+diff --git a/backend/src/data/apiRoutes.md b/backend/src/data/apiRoutes.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..b422821e0cd5299d63576416d50e649435307b6c
+--- /dev/null
++++ b/backend/src/data/apiRoutes.md
+@@ -0,0 +1,27 @@
++# REST API Routes
++
++## Auth
++- `POST /api/auth/signup`
++- `POST /api/auth/login`
++- `POST /api/auth/driver/register`
++
++## Customer Bookings
++- `POST /api/bookings/estimate-fare`
++- `POST /api/bookings`
++- `GET /api/bookings/me`
++- `PATCH /api/bookings/:bookingId/cancel`
++- `PATCH /api/bookings/:bookingId/rate-driver`
++
++## Driver
++- `PATCH /api/drivers/availability`
++- `GET /api/drivers/jobs/open`
++- `PATCH /api/drivers/jobs/:bookingId/respond`
++- `GET /api/drivers/dashboard`
++
++## Admin
++- `GET /api/admin/users`
++- `GET /api/admin/drivers`
++- `PATCH /api/admin/drivers/:driverId/approve`
++- `GET /api/admin/bookings/live`
++- `PATCH /api/admin/pricing-rules`
++- `GET /api/admin/analytics`
+diff --git a/backend/src/db/schema.sql b/backend/src/db/schema.sql
+new file mode 100644
+index 0000000000000000000000000000000000000000..a1581f06a997a2a4edc92bd655c4b5102603f50c
+--- /dev/null
++++ b/backend/src/db/schema.sql
+@@ -0,0 +1,73 @@
++-- SwiftHaul PostgreSQL Schema
++CREATE TABLE users (
++  id SERIAL PRIMARY KEY,
++  name VARCHAR(120) NOT NULL,
++  email VARCHAR(160) UNIQUE NOT NULL,
++  phone VARCHAR(30),
++  password_hash TEXT NOT NULL,
++  role VARCHAR(20) NOT NULL DEFAULT 'customer',
++  created_at TIMESTAMP DEFAULT NOW()
++);
++
++CREATE TABLE drivers (
++  id SERIAL PRIMARY KEY,
++  user_id INT UNIQUE REFERENCES users(id) ON DELETE CASCADE,
++  vehicle_type VARCHAR(30) NOT NULL,
++  vehicle_number VARCHAR(30) NOT NULL,
++  license_document_url TEXT,
++  is_approved BOOLEAN DEFAULT FALSE,
++  is_online BOOLEAN DEFAULT FALSE,
++  wallet_balance NUMERIC(10, 2) DEFAULT 0,
++  created_at TIMESTAMP DEFAULT NOW()
++);
++
++CREATE TABLE pricing_rules (
++  id SERIAL PRIMARY KEY,
++  vehicle_type VARCHAR(30) NOT NULL,
++  base_fare NUMERIC(10, 2) NOT NULL,
++  per_km_rate NUMERIC(10, 2) NOT NULL,
++  surge_multiplier NUMERIC(4, 2) NOT NULL DEFAULT 1,
++  commission_percent NUMERIC(5, 2) NOT NULL DEFAULT 80,
++  updated_at TIMESTAMP DEFAULT NOW()
++);
++
++CREATE TABLE bookings (
++  id SERIAL PRIMARY KEY,
++  customer_id INT NOT NULL REFERENCES users(id),
++  driver_id INT REFERENCES drivers(id),
++  vehicle_type VARCHAR(30) NOT NULL,
++  pickup_address TEXT NOT NULL,
++  drop_address TEXT NOT NULL,
++  pickup_lat NUMERIC(10, 7) NOT NULL,
++  pickup_lng NUMERIC(10, 7) NOT NULL,
++  drop_lat NUMERIC(10, 7) NOT NULL,
++  drop_lng NUMERIC(10, 7) NOT NULL,
++  distance_km NUMERIC(10, 2) NOT NULL,
++  total_fare NUMERIC(10, 2) NOT NULL,
++  driver_payout NUMERIC(10, 2) NOT NULL,
++  platform_fee NUMERIC(10, 2) NOT NULL,
++  schedule_type VARCHAR(20) NOT NULL DEFAULT 'instant',
++  scheduled_at TIMESTAMP,
++  status VARCHAR(20) NOT NULL DEFAULT 'pending',
++  payment_status VARCHAR(20) NOT NULL DEFAULT 'pending',
++  created_at TIMESTAMP DEFAULT NOW(),
++  updated_at TIMESTAMP DEFAULT NOW()
++);
++
++CREATE TABLE booking_status_logs (
++  id SERIAL PRIMARY KEY,
++  booking_id INT REFERENCES bookings(id) ON DELETE CASCADE,
++  status VARCHAR(20) NOT NULL,
++  note TEXT,
++  created_at TIMESTAMP DEFAULT NOW()
++);
++
++CREATE TABLE driver_ratings (
++  id SERIAL PRIMARY KEY,
++  booking_id INT UNIQUE REFERENCES bookings(id) ON DELETE CASCADE,
++  customer_id INT REFERENCES users(id),
++  driver_id INT REFERENCES drivers(id),
++  rating INT CHECK (rating BETWEEN 1 AND 5),
++  review TEXT,
++  created_at TIMESTAMP DEFAULT NOW()
++);
+diff --git a/backend/src/db/seed.sql b/backend/src/db/seed.sql
+new file mode 100644
+index 0000000000000000000000000000000000000000..bb1d2420b2d251a7335ec72665918979eb710baf
+--- /dev/null
++++ b/backend/src/db/seed.sql
+@@ -0,0 +1,17 @@
++INSERT INTO users (name, email, phone, password_hash, role)
++VALUES
++('Aarav Mehta', 'aarav@swifthaul.com', '+919900001111', 'hashed_password_1', 'customer'),
++('Isha Patel', 'isha@swifthaul.com', '+919900002222', 'hashed_password_2', 'customer'),
++('Admin SwiftHaul', 'admin@swifthaul.com', '+919900009999', 'hashed_password_3', 'admin');
++
++INSERT INTO drivers (user_id, vehicle_type, vehicle_number, license_document_url, is_approved, is_online, wallet_balance)
++VALUES
++(1, 'mini_truck', 'MH12AB1234', 'https://example.com/license-1.png', TRUE, TRUE, 1250.50),
++(2, 'tempo', 'MH14CD5678', 'https://example.com/license-2.png', TRUE, FALSE, 860.00);
++
++INSERT INTO pricing_rules (vehicle_type, base_fare, per_km_rate, surge_multiplier, commission_percent)
++VALUES
++('bike', 40, 10, 1.0, 80),
++('tempo', 80, 16, 1.0, 80),
++('mini_truck', 130, 22, 1.0, 80),
++('large_truck', 250, 38, 1.1, 78);
+diff --git a/backend/src/middleware/authMiddleware.js b/backend/src/middleware/authMiddleware.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..1b880e13f243d63b2c1c2ee8b6088e2f14ad9a7c
+--- /dev/null
++++ b/backend/src/middleware/authMiddleware.js
+@@ -0,0 +1,29 @@
++const jwt = require('jsonwebtoken');
++
++const protect = (roles = []) => (req, res, next) => {
++  const authHeader = req.headers.authorization;
++
++  if (!authHeader || !authHeader.startsWith('Bearer ')) {
++    res.status(401);
++    throw new Error('Missing authorization token');
++  }
++
++  const token = authHeader.split(' ')[1];
++
++  try {
++    const decoded = jwt.verify(token, process.env.JWT_SECRET);
++    req.user = decoded;
++
++    if (roles.length && !roles.includes(decoded.role)) {
++      res.status(403);
++      throw new Error('Access denied for this role');
++    }
++
++    next();
++  } catch (error) {
++    res.status(401);
++    throw new Error('Invalid or expired token');
++  }
++};
++
++module.exports = { protect };
+diff --git a/backend/src/middleware/errorMiddleware.js b/backend/src/middleware/errorMiddleware.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..faba296586504f80c3d00e7e0ebc8fffcff87744
+--- /dev/null
++++ b/backend/src/middleware/errorMiddleware.js
+@@ -0,0 +1,15 @@
++const notFound = (req, res, next) => {
++  const error = new Error(`Route not found: ${req.originalUrl}`);
++  res.status(404);
++  next(error);
++};
++
++const errorHandler = (err, _req, res, _next) => {
++  const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
++  res.status(statusCode).json({
++    message: err.message,
++    stack: process.env.NODE_ENV === 'production' ? undefined : err.stack
++  });
++};
++
++module.exports = { notFound, errorHandler };
+diff --git a/backend/src/routes/adminRoutes.js b/backend/src/routes/adminRoutes.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..88c1a9fc130e66f185d0f1c6d6c2a20473086fbc
+--- /dev/null
++++ b/backend/src/routes/adminRoutes.js
+@@ -0,0 +1,21 @@
++const express = require('express');
++const {
++  getAllUsers,
++  getAllDrivers,
++  approveDriver,
++  getLiveBookings,
++  updatePricingRules,
++  getAnalytics
++} = require('../controllers/adminController');
++const { protect } = require('../middleware/authMiddleware');
++
++const router = express.Router();
++
++router.get('/users', protect(['admin']), getAllUsers);
++router.get('/drivers', protect(['admin']), getAllDrivers);
++router.patch('/drivers/:driverId/approve', protect(['admin']), approveDriver);
++router.get('/bookings/live', protect(['admin']), getLiveBookings);
++router.patch('/pricing-rules', protect(['admin']), updatePricingRules);
++router.get('/analytics', protect(['admin']), getAnalytics);
++
++module.exports = router;
+diff --git a/backend/src/routes/authRoutes.js b/backend/src/routes/authRoutes.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..f1c4b92a216a60a371d498b0345b35228edd5d7c
+--- /dev/null
++++ b/backend/src/routes/authRoutes.js
+@@ -0,0 +1,10 @@
++const express = require('express');
++const { login, signUp, registerDriver } = require('../controllers/authController');
++
++const router = express.Router();
++
++router.post('/signup', signUp);
++router.post('/login', login);
++router.post('/driver/register', registerDriver);
++
++module.exports = router;
+diff --git a/backend/src/routes/bookingRoutes.js b/backend/src/routes/bookingRoutes.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..70d3e4ff28ecb0ba8ccc3380610a5138e45b16c4
+--- /dev/null
++++ b/backend/src/routes/bookingRoutes.js
+@@ -0,0 +1,19 @@
++const express = require('express');
++const {
++  estimateFare,
++  createBooking,
++  getCustomerBookings,
++  cancelBooking,
++  rateDriver
++} = require('../controllers/bookingController');
++const { protect } = require('../middleware/authMiddleware');
++
++const router = express.Router();
++
++router.post('/estimate-fare', protect(['customer']), estimateFare);
++router.post('/', protect(['customer']), createBooking);
++router.get('/me', protect(['customer']), getCustomerBookings);
++router.patch('/:bookingId/cancel', protect(['customer']), cancelBooking);
++router.patch('/:bookingId/rate-driver', protect(['customer']), rateDriver);
++
++module.exports = router;
+diff --git a/backend/src/routes/driverRoutes.js b/backend/src/routes/driverRoutes.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..35b408ea5bcbd7a13f16bddd354aa0420ecdb3b9
+--- /dev/null
++++ b/backend/src/routes/driverRoutes.js
+@@ -0,0 +1,17 @@
++const express = require('express');
++const {
++  setAvailability,
++  getOpenJobs,
++  respondToJob,
++  getDriverDashboard
++} = require('../controllers/driverController');
++const { protect } = require('../middleware/authMiddleware');
++
++const router = express.Router();
++
++router.patch('/availability', protect(['driver']), setAvailability);
++router.get('/jobs/open', protect(['driver']), getOpenJobs);
++router.patch('/jobs/:bookingId/respond', protect(['driver']), respondToJob);
++router.get('/dashboard', protect(['driver']), getDriverDashboard);
++
++module.exports = router;
+diff --git a/backend/src/server.js b/backend/src/server.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..3d7654236e8ef854ce3be19b571a11f3a4c70560
+--- /dev/null
++++ b/backend/src/server.js
+@@ -0,0 +1,8 @@
++require('dotenv').config();
++const app = require('./app');
++
++const PORT = process.env.PORT || 5000;
++
++app.listen(PORT, () => {
++  console.log(`SwiftHaul API running on port ${PORT}`);
++});
+diff --git a/backend/src/services/locationService.js b/backend/src/services/locationService.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..2f4b77368c592d158fe0a5858cd81a4dde65e07a
+--- /dev/null
++++ b/backend/src/services/locationService.js
+@@ -0,0 +1,19 @@
++/**
++ * Lightweight distance estimation using Haversine formula.
++ */
++const calculateDistanceKm = ({ pickupLat, pickupLng, dropLat, dropLng }) => {
++  const toRad = (value) => (value * Math.PI) / 180;
++  const earthRadiusKm = 6371;
++
++  const dLat = toRad(dropLat - pickupLat);
++  const dLng = toRad(dropLng - pickupLng);
++
++  const a =
++    Math.sin(dLat / 2) ** 2 +
++    Math.cos(toRad(pickupLat)) * Math.cos(toRad(dropLat)) * Math.sin(dLng / 2) ** 2;
++
++  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
++  return Number((earthRadiusKm * c).toFixed(2));
++};
++
++module.exports = { calculateDistanceKm };
+diff --git a/backend/src/services/paymentService.js b/backend/src/services/paymentService.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..53ebe0d73fd3f38f5e7d49cc2144e64e36a4b857
+--- /dev/null
++++ b/backend/src/services/paymentService.js
+@@ -0,0 +1,13 @@
++/**
++ * Mock payment intent similar to Stripe response shape.
++ */
++const createPaymentIntent = async ({ amount, currency = 'INR', bookingId }) => ({
++  id: `pi_${Date.now()}`,
++  bookingId,
++  amount,
++  currency,
++  status: 'requires_payment_method',
++  clientSecret: `mock_secret_${Date.now()}`
++});
++
++module.exports = { createPaymentIntent };
+diff --git a/backend/src/utils/fareCalculator.js b/backend/src/utils/fareCalculator.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..ce1179b6c699275a841511ad16f3a04b16835726
+--- /dev/null
++++ b/backend/src/utils/fareCalculator.js
+@@ -0,0 +1,34 @@
++const pricingByVehicle = {
++  bike: { baseFare: 40, perKm: 10 },
++  tempo: { baseFare: 80, perKm: 16 },
++  mini_truck: { baseFare: 130, perKm: 22 },
++  large_truck: { baseFare: 250, perKm: 38 }
++};
++
++/**
++ * Calculates fare and driver payout using a transparent formula:
++ * total = (baseFare + distanceKm * perKm) * surgeMultiplier
++ */
++const calculateFare = ({ vehicleType, distanceKm, surgeMultiplier = 1, driverCommissionPercent = 80 }) => {
++  const priceConfig = pricingByVehicle[vehicleType];
++
++  if (!priceConfig) {
++    throw new Error('Unsupported vehicle type');
++  }
++
++  const subtotal = priceConfig.baseFare + distanceKm * priceConfig.perKm;
++  const totalFare = Number((subtotal * surgeMultiplier).toFixed(2));
++  const driverPayout = Number((totalFare * (driverCommissionPercent / 100)).toFixed(2));
++  const platformFee = Number((totalFare - driverPayout).toFixed(2));
++
++  return {
++    ...priceConfig,
++    distanceKm,
++    surgeMultiplier,
++    totalFare,
++    driverPayout,
++    platformFee
++  };
++};
++
++module.exports = { calculateFare, pricingByVehicle };
+diff --git a/backend/src/utils/jwt.js b/backend/src/utils/jwt.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..edfa1e645158a82bb3e6f2a33afecdba6482afea
+--- /dev/null
++++ b/backend/src/utils/jwt.js
+@@ -0,0 +1,8 @@
++const jwt = require('jsonwebtoken');
++
++const generateToken = (payload) =>
++  jwt.sign(payload, process.env.JWT_SECRET, {
++    expiresIn: process.env.JWT_EXPIRES_IN || '7d'
++  });
++
++module.exports = { generateToken };
+diff --git a/frontend/index.html b/frontend/index.html
+new file mode 100644
+index 0000000000000000000000000000000000000000..11384641fc85bf9b6deee095eb0324905b3fcc32
+--- /dev/null
++++ b/frontend/index.html
+@@ -0,0 +1,12 @@
++<!doctype html>
++<html lang="en">
++  <head>
++    <meta charset="UTF-8" />
++    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++    <title>SwiftHaul | On-demand Goods Transport</title>
++  </head>
++  <body class="bg-slate-50">
++    <div id="root"></div>
++    <script type="module" src="/src/main.jsx"></script>
++  </body>
++</html>
+diff --git a/frontend/package.json b/frontend/package.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..e59429509e87184d3162751ea0a2d5577582cebc
+--- /dev/null
++++ b/frontend/package.json
+@@ -0,0 +1,24 @@
++{
++  "name": "swifthaul-frontend",
++  "version": "1.0.0",
++  "private": true,
++  "type": "module",
++  "scripts": {
++    "dev": "vite",
++    "build": "vite build",
++    "preview": "vite preview"
++  },
++  "dependencies": {
++    "axios": "^1.7.2",
++    "react": "^18.3.1",
++    "react-dom": "^18.3.1",
++    "react-router-dom": "^6.26.0"
++  },
++  "devDependencies": {
++    "@vitejs/plugin-react": "^4.3.1",
++    "autoprefixer": "^10.4.20",
++    "postcss": "^8.4.41",
++    "tailwindcss": "^3.4.10",
++    "vite": "^5.4.2"
++  }
++}
+diff --git a/frontend/postcss.config.js b/frontend/postcss.config.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..ba80730477d1dd22b1484282d594f2e5dda4785a
+--- /dev/null
++++ b/frontend/postcss.config.js
+@@ -0,0 +1,6 @@
++export default {
++  plugins: {
++    tailwindcss: {},
++    autoprefixer: {}
++  }
++};
+diff --git a/frontend/src/App.jsx b/frontend/src/App.jsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..dae656544f8606f08e30ce5aabda5a72773326bf
+--- /dev/null
++++ b/frontend/src/App.jsx
+@@ -0,0 +1,20 @@
++import { Route, Routes } from 'react-router-dom';
++import Navbar from './components/Navbar';
++import LandingPage from './pages/LandingPage';
++import CustomerPanel from './pages/CustomerPanel';
++import DriverPanel from './pages/DriverPanel';
++import AdminDashboard from './pages/AdminDashboard';
++
++const App = () => (
++  <div className="min-h-screen bg-slate-50">
++    <Navbar />
++    <Routes>
++      <Route path="/" element={<LandingPage />} />
++      <Route path="/customer" element={<CustomerPanel />} />
++      <Route path="/driver" element={<DriverPanel />} />
++      <Route path="/admin" element={<AdminDashboard />} />
++    </Routes>
++  </div>
++);
++
++export default App;
+diff --git a/frontend/src/components/FareEstimatorCard.jsx b/frontend/src/components/FareEstimatorCard.jsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..92f32aa4782181bcae9a07bb818c5ba65911ad15
+--- /dev/null
++++ b/frontend/src/components/FareEstimatorCard.jsx
+@@ -0,0 +1,47 @@
++import { useState } from 'react';
++import { api } from '../services/api';
++
++const FareEstimatorCard = () => {
++  const [form, setForm] = useState({
++    vehicleType: 'bike',
++    pickupLat: 19.076,
++    pickupLng: 72.8777,
++    dropLat: 19.2183,
++    dropLng: 72.9781
++  });
++  const [result, setResult] = useState(null);
++
++  const estimateFare = async () => {
++    // Demo token for static preview. Replace with real auth token after login.
++    const { data } = await api.post('/bookings/estimate-fare', form, {
++      headers: { Authorization: `Bearer demo_customer_jwt` }
++    });
++    setResult(data);
++  };
++
++  return (
++    <div className="card space-y-3">
++      <h3 className="text-lg font-semibold">Live fare estimator</h3>
++      <select
++        className="w-full rounded-xl border px-3 py-2"
++        value={form.vehicleType}
++        onChange={(event) => setForm({ ...form, vehicleType: event.target.value })}
++      >
++        <option value="bike">Bike</option>
++        <option value="tempo">3-Wheeler / Tempo</option>
++        <option value="mini_truck">Mini Truck</option>
++        <option value="large_truck">Large Truck</option>
++      </select>
++      <button onClick={estimateFare} className="rounded-xl bg-brand-600 px-4 py-2 text-white">
++        Estimate fare
++      </button>
++      {result && (
++        <p className="text-sm text-slate-600">
++          Distance: {result.distanceKm} km • Fare: ₹{result.totalFare} • Driver payout: ₹{result.driverPayout}
++        </p>
++      )}
++    </div>
++  );
++};
++
++export default FareEstimatorCard;
+diff --git a/frontend/src/components/MetricCard.jsx b/frontend/src/components/MetricCard.jsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..a38af31f9b955b8df5ef0611cfa1461f43e74dc0
+--- /dev/null
++++ b/frontend/src/components/MetricCard.jsx
+@@ -0,0 +1,8 @@
++const MetricCard = ({ label, value }) => (
++  <div className="card">
++    <p className="text-sm text-slate-500">{label}</p>
++    <p className="mt-2 text-2xl font-semibold">{value}</p>
++  </div>
++);
++
++export default MetricCard;
+diff --git a/frontend/src/components/Navbar.jsx b/frontend/src/components/Navbar.jsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..ef07d2dd438a94617aea3ef68f88f9c55a3125fc
+--- /dev/null
++++ b/frontend/src/components/Navbar.jsx
+@@ -0,0 +1,24 @@
++import { Link } from 'react-router-dom';
++
++const Navbar = () => (
++  <header className="border-b border-slate-200 bg-white sticky top-0 z-10">
++    <nav className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
++      <Link to="/" className="text-xl font-bold text-brand-600">
++        SwiftHaul
++      </Link>
++      <div className="flex gap-3 text-sm font-medium">
++        <Link to="/customer" className="hover:text-brand-600">
++          Customer
++        </Link>
++        <Link to="/driver" className="hover:text-brand-600">
++          Driver
++        </Link>
++        <Link to="/admin" className="hover:text-brand-600">
++          Admin
++        </Link>
++      </div>
++    </nav>
++  </header>
++);
++
++export default Navbar;
+diff --git a/frontend/src/context/AuthContext.jsx b/frontend/src/context/AuthContext.jsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..69d86377d882ae95fef0d0ece7db6d4a6fa4d3b3
+--- /dev/null
++++ b/frontend/src/context/AuthContext.jsx
+@@ -0,0 +1,20 @@
++import { createContext, useContext, useMemo, useState } from 'react';
++
++const AuthContext = createContext(null);
++
++export const AuthProvider = ({ children }) => {
++  const [session, setSession] = useState(null);
++
++  const value = useMemo(
++    () => ({
++      session,
++      login: (payload) => setSession(payload),
++      logout: () => setSession(null)
++    }),
++    [session]
++  );
++
++  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
++};
++
++export const useAuth = () => useContext(AuthContext);
+diff --git a/frontend/src/main.jsx b/frontend/src/main.jsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..10aec7ccc1eaf75f6754a67b445cb1f51c3ec6b5
+--- /dev/null
++++ b/frontend/src/main.jsx
+@@ -0,0 +1,16 @@
++import React from 'react';
++import ReactDOM from 'react-dom/client';
++import { BrowserRouter } from 'react-router-dom';
++import App from './App';
++import './styles/index.css';
++import { AuthProvider } from './context/AuthContext';
++
++ReactDOM.createRoot(document.getElementById('root')).render(
++  <React.StrictMode>
++    <BrowserRouter>
++      <AuthProvider>
++        <App />
++      </AuthProvider>
++    </BrowserRouter>
++  </React.StrictMode>
++);
+diff --git a/frontend/src/pages/AdminDashboard.jsx b/frontend/src/pages/AdminDashboard.jsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..1c96b749a32127037194dcf0d4c0dc2b5b56986b
+--- /dev/null
++++ b/frontend/src/pages/AdminDashboard.jsx
+@@ -0,0 +1,19 @@
++import MetricCard from '../components/MetricCard';
++
++const AdminDashboard = () => (
++  <main className="mx-auto max-w-6xl space-y-4 px-4 py-8">
++    <h2 className="text-2xl font-semibold">Admin Dashboard</h2>
++    <div className="grid gap-4 md:grid-cols-4">
++      <MetricCard label="Total revenue" value="₹12,40,320" />
++      <MetricCard label="Active drivers" value="186" />
++      <MetricCard label="Completed trips" value="12,804" />
++      <MetricCard label="Cancellation rate" value="3.2%" />
++    </div>
++    <div className="card text-sm text-slate-600">
++      Manage users/drivers, approve onboarding, monitor live bookings, and update pricing rules from a single
++      place.
++    </div>
++  </main>
++);
++
++export default AdminDashboard;
+diff --git a/frontend/src/pages/CustomerPanel.jsx b/frontend/src/pages/CustomerPanel.jsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..222f18e2c1c271e00bf6f672f7b29d3a68c894b4
+--- /dev/null
++++ b/frontend/src/pages/CustomerPanel.jsx
+@@ -0,0 +1,21 @@
++import FareEstimatorCard from '../components/FareEstimatorCard';
++
++const CustomerPanel = () => (
++  <main className="mx-auto grid max-w-6xl gap-4 px-4 py-8 md:grid-cols-2">
++    <div className="card">
++      <h2 className="text-xl font-semibold">Customer panel</h2>
++      <p className="mt-2 text-sm text-slate-600">
++        Sign up/login, book vehicles, schedule deliveries, cancel orders, track statuses, and rate drivers.
++      </p>
++      <ul className="mt-4 list-disc space-y-2 pl-5 text-sm text-slate-600">
++        <li>Pickup & drop location input</li>
++        <li>Vehicle selection: Bike, Tempo, Mini Truck, Large Truck</li>
++        <li>Booking history with cancellation</li>
++        <li>Payment intent placeholder (Stripe-style)</li>
++      </ul>
++    </div>
++    <FareEstimatorCard />
++  </main>
++);
++
++export default CustomerPanel;
+diff --git a/frontend/src/pages/DriverPanel.jsx b/frontend/src/pages/DriverPanel.jsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..36aab83d201d2ac9a940cd0164bac7d762044738
+--- /dev/null
++++ b/frontend/src/pages/DriverPanel.jsx
+@@ -0,0 +1,21 @@
++import MetricCard from '../components/MetricCard';
++
++const DriverPanel = () => (
++  <main className="mx-auto max-w-6xl space-y-4 px-4 py-8">
++    <h2 className="text-2xl font-semibold">Driver Partner Panel</h2>
++    <div className="grid gap-4 md:grid-cols-4">
++      <MetricCard label="Trips today" value="8" />
++      <MetricCard label="Online status" value="Online" />
++      <MetricCard label="Wallet balance" value="₹4,920" />
++      <MetricCard label="Earnings (month)" value="₹52,400" />
++    </div>
++    <div className="card">
++      <p className="text-sm text-slate-600">
++        Includes registration with vehicle details, license upload placeholder, accept/reject jobs, and trip
++        history.
++      </p>
++    </div>
++  </main>
++);
++
++export default DriverPanel;
+diff --git a/frontend/src/pages/LandingPage.jsx b/frontend/src/pages/LandingPage.jsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..749c656eafa53b8671090179f895eb9fea567035
+--- /dev/null
++++ b/frontend/src/pages/LandingPage.jsx
+@@ -0,0 +1,36 @@
++import { Link } from 'react-router-dom';
++
++const LandingPage = () => (
++  <main className="mx-auto max-w-6xl px-4 py-12">
++    <section className="grid gap-8 md:grid-cols-2 md:items-center">
++      <div>
++        <p className="inline rounded-full bg-brand-100 px-3 py-1 text-xs font-semibold text-brand-600">
++          On-demand goods movement
++        </p>
++        <h1 className="mt-4 text-4xl font-bold tracking-tight">Move anything in your city with SwiftHaul</h1>
++        <p className="mt-4 text-slate-600">
++          Book bikes to trucks, track every trip live, and manage transport operations in one SaaS-grade
++          platform.
++        </p>
++        <div className="mt-6 flex gap-3">
++          <Link to="/customer" className="rounded-xl bg-brand-600 px-4 py-2 text-white">
++            Book a vehicle
++          </Link>
++          <Link to="/driver" className="rounded-xl border px-4 py-2">
++            Become a partner
++          </Link>
++        </div>
++      </div>
++      <div className="card space-y-3">
++        <h2 className="text-lg font-semibold">Why businesses choose SwiftHaul</h2>
++        <ul className="list-disc space-y-2 pl-5 text-sm text-slate-600">
++          <li>Instant + scheduled delivery options</li>
++          <li>Transparent distance-based pricing with surge controls</li>
++          <li>Live order tracking and driver performance insights</li>
++        </ul>
++      </div>
++    </section>
++  </main>
++);
++
++export default LandingPage;
+diff --git a/frontend/src/services/api.js b/frontend/src/services/api.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..32229b8ffdeb6db0a9d100b6303094cf68ed3eb4
+--- /dev/null
++++ b/frontend/src/services/api.js
+@@ -0,0 +1,5 @@
++import axios from 'axios';
++
++export const api = axios.create({
++  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
++});
+diff --git a/frontend/src/styles/index.css b/frontend/src/styles/index.css
+new file mode 100644
+index 0000000000000000000000000000000000000000..55d508861e7b8738b0958d41e05a1b3f62762344
+--- /dev/null
++++ b/frontend/src/styles/index.css
+@@ -0,0 +1,11 @@
++@tailwind base;
++@tailwind components;
++@tailwind utilities;
++
++body {
++  @apply text-slate-800;
++}
++
++.card {
++  @apply rounded-2xl bg-white p-4 shadow-sm border border-slate-100;
++}
+diff --git a/frontend/tailwind.config.js b/frontend/tailwind.config.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..87433e4aa84f016dca4ddf61ff532585fe38ab33
+--- /dev/null
++++ b/frontend/tailwind.config.js
+@@ -0,0 +1,15 @@
++/** @type {import('tailwindcss').Config} */
++export default {
++  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
++  theme: {
++    extend: {
++      colors: {
++        brand: {
++          500: '#2563eb',
++          600: '#1d4ed8'
++        }
++      }
++    }
++  },
++  plugins: []
++};
+diff --git a/frontend/vite.config.js b/frontend/vite.config.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..8a19aa9b34d6e7b7bceea22faea8e3bea35a4538
+--- /dev/null
++++ b/frontend/vite.config.js
+@@ -0,0 +1,6 @@
++import { defineConfig } from 'vite';
++import react from '@vitejs/plugin-react';
++
++export default defineConfig({
++  plugins: [react()]
++});
